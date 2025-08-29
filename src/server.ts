@@ -14,15 +14,14 @@ await app.register(cors, { origin: true });
 
 app.get('/', async () => ({ ok: true, service: 'playwright-task-runner' }));
 export const deletePlaywrightScript = async (page: Page) => {
-    await page.addInitScript(() => {
-        // @ts-ignore
-        delete window.__playwright__binding__;
-        // @ts-ignore
-        delete window.__pwInitScripts;
-        // @ts-ignore
-        navigator.webdriver = false;
-
-    });
+  await page.addInitScript(() => {
+    // @ts-ignore
+    delete window.__playwright__binding__;
+    // @ts-ignore
+    delete window.__pwInitScripts;
+    // @ts-ignore
+    navigator.webdriver = false;
+  });
 };
 app.post('/run', async (req, reply) => {
   let payload: TTaskPayload;
@@ -43,7 +42,15 @@ app.post('/run', async (req, reply) => {
       ? webkit
       : chromium;
 
-  const browser = await browserType.launch({ headless: payload.headless });
+  const browser = await browserType.launch({
+    headless: payload.headless,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-infobars',
+    ],
+  });
   const context = await browser.newContext(payload.contextOptions);
   const page = await context.newPage(payload.pageOptions);
   await deletePlaywrightScript(page);
@@ -92,6 +99,7 @@ app.post('/run', async (req, reply) => {
 
   page.on('response', async (response) => {
     try {
+      console.log('Response:', response.url());
       const url = new URL(response.url());
       const status = response.status();
       const found = resMatchers.find((m) => m.test(url, status));
