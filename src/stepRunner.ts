@@ -88,12 +88,6 @@ export const StepHandlers: Record<
     return page.setViewportSize(step.value);
   },
 
-  async screenshot(page, step) {
-    const opts = step.options || {};
-    const path = typeof step.value === 'string' ? step.value : undefined;
-    return page.screenshot({ path, ...opts });
-  },
-
   async route(page, step) {
     // value = { urlPattern, handlerCode }
     const { urlPattern, handlerCode } = step.value || {};
@@ -144,22 +138,9 @@ export const StepHandlers: Record<
     return page.waitForResponse(step.value, step.options);
   },
 
-  // files / inputs
-  async setInputFiles(page, step) {
-    if (!step.selector) throw new Error('setInputFiles: selector is required');
-    // value = string | { name, mimeType, buffer } | Array
-    return page.setInputFiles(step.selector, step.value, step.options);
-  },
   async focus(page, step) {
     if (!step.selector) throw new Error('focus: selector is required');
     return page.focus(step.selector);
-  },
-  async dragAndDrop(page, step) {
-    if (!step.selector)
-      throw new Error('dragAndDrop: source selector is required');
-    if (!step.value)
-      throw new Error('dragAndDrop: target selector in step.value is required');
-    return page.dragAndDrop(step.selector, String(step.value), step.options);
   },
 
   // keyboard
@@ -178,10 +159,38 @@ export const StepHandlers: Record<
 
   // mouse
   async mouseMove(page, step) {
-    const { x, y } = step.value || {};
-    if (typeof x !== 'number' || typeof y !== 'number')
-      throw new Error('mouseMove: value.x and value.y are required');
-    return page.mouse.move(x, y, step.options);
+    const {
+      offsetX = 0,
+      offsetY = 0,
+      steps,
+    } = (step.value ?? {}) as {
+      offsetX?: number;
+      offsetY?: number;
+      steps?: number;
+    };
+    if (step.selector) {
+      const loc = page.locator(step.selector);
+      await loc.waitFor({ state: 'visible', timeout: step.options?.timeout });
+      await loc.scrollIntoViewIfNeeded();
+      const box = await loc.boundingBox();
+      if (!box)
+        throw new Error(
+          `mouseMove: could not resolve boundingBox for selector "${step.selector}"`
+        );
+      const cx = box.x + box.width / 2 + offsetX;
+      const cy = box.y + box.height / 2 + offsetY;
+      return page.mouse.move(cx, cy, { steps: steps ?? step.options?.steps });
+    }
+
+    const { x, y } = (step.value ?? {}) as { x?: number; y?: number };
+    if (typeof x !== 'number' || typeof y !== 'number') {
+      throw new Error(
+        'mouseMove: provide either a selector or numeric value.x and value.y'
+      );
+    }
+    return page.mouse.move(x + offsetX, y + offsetY, {
+      steps: steps ?? step.options?.steps,
+    });
   },
   async mouseDown(page, step) {
     return page.mouse.down(step.options);
@@ -202,10 +211,6 @@ export const StepHandlers: Record<
   async addStyleTag(page, step) {
     // value = { url?, path?, content? }
     return page.addStyleTag(step.value || step.options);
-  },
-  async addInitScript(page, step) {
-    // value = string | Function
-    return page.addInitScript(step.value);
   },
 
   // dialogs
@@ -291,51 +296,83 @@ export const StepHandlers: Record<
   async clearCookies(page) {
     return page.context().clearCookies();
   },
-  async storageState(page) {
-    // retorna o JSON de storage state (podes salvar fora daqui)
-    return page.context().storageState();
-  },
-    // ---- DOM helpers
+
+  // ---- DOM helpers
   async dispatchEvent(page, step) {
     // value = { type: string, eventInit?: any }
-    if (!step.selector) throw new Error("dispatchEvent: selector is required");
+    if (!step.selector) throw new Error('dispatchEvent: selector is required');
     const { type, eventInit } = (step.value as any) || {};
-    if (!type) throw new Error("dispatchEvent: value.type is required");
+    if (!type) throw new Error('dispatchEvent: value.type is required');
     return page.dispatchEvent(step.selector, type, eventInit);
   },
-  async $eval(page, step) {
-    // value = function (el)=>any  OR string code
-    if (!step.selector) throw new Error("$eval: selector is required");
-    const fn = step.value as any;
-    return page.$eval(step.selector, fn);
-  },
-  async $$eval(page, step) {
-    // value = function (els)=>any  OR string code
-    if (!step.selector) throw new Error("$$eval: selector is required");
-    const fn = step.value as any;
-    return page.$$eval(step.selector, fn);
-  },
-
   // ---- popups / dialogs / file chooser
   async waitForPopup(page, step) {
     // returns the popup Page object handle (cannot be JSON-serialized fully)
     // Consider using waitForEvent('popup') + follow-up steps referencing it
-    return page.waitForEvent("popup", step.options);
+    return page.waitForEvent('popup', step.options);
   },
   async waitForFileChooser(page, step) {
     // often unnecessary (setInputFiles is better), but included if needed
-    return page.waitForEvent("filechooser", step.options);
+    return page.waitForEvent('filechooser', step.options);
   },
 
-  // ---- authentication / networky context
-  async setHTTPCredentials(page, step) {
-    // value = { username: string, password: string }
-    const creds = step.value as any;
-    if (!creds?.username || !creds?.password) {
-      throw new Error("setHTTPCredentials: value.username and value.password are required");
+  //combined selectors
+  async userFill(page, step) {
+    if (!step.selector) throw new Error('userFill: selector is required');
+
+    const optionsTimeout: { timeout?: number } = {};
+
+    if (step.options?.timeout) {
+      optionsTimeout.timeout = step.options.timeout;
     }
-    return page.context().setHTTPCredentials(creds);
+
+    await (StepHandlers as any).waitForSelector(page, {
+      selector: step.selector,
+      options: optionsTimeout,
+    });
+    await (StepHandlers as any).mouseMove(page, {
+      selector: step.selector,
+      options: optionsTimeout,
+    });
+
+    await (StepHandlers as any).click(page, {
+      selector: step.selector,
+      options: optionsTimeout,
+    });
+
+    return (StepHandlers as any).type(page, {
+      selector: step.selector,
+      value: step.value,
+      options: step.options,
+    });
   },
+  async userClick(page, step) {
+    if (!step.selector) throw new Error('userClick: selector is required');
 
+    const optionsTimeout: { timeout?: number } = {};
 
+    if (step.options?.timeout) {
+      optionsTimeout.timeout = step.options.timeout;
+    }
+    await (StepHandlers as any).waitForSelector(page, {
+      selector: step.selector,
+      options: optionsTimeout,
+    });
+
+    await (StepHandlers as any).mouseMove(page, {
+      selector: step.selector,
+      options: optionsTimeout,
+    });
+
+    await (StepHandlers as any).click(page, {
+      selector: step.selector,
+      options: optionsTimeout,
+    });
+
+    return (StepHandlers as any).type(page, {
+      selector: step.selector,
+      value: step.value,
+      options: step.options,
+    });
+  },
 };
