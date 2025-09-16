@@ -1,13 +1,14 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { chromium, firefox, Page, webkit } from 'playwright';
-import { TaskPayload, TTaskPayload, RunResult } from './types';
-import { StepHandlers } from './stepRunner';
+import { TaskPayload, RunResult } from './types';
+import { StepHandlerProvider } from './StepsEngine/step-handler-provider';
 import {
   buildRequestMatcherFns,
   buildResponseMatcherFns,
   attachMatcherId,
 } from './matchers';
+import { StepExecutor } from './StepsEngine/step-executor';
 
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
@@ -24,12 +25,9 @@ export const deletePlaywrightScript = async (page: Page) => {
   });
 };
 app.post('/run', async (req, reply) => {
-  let payload: TTaskPayload;
-  try {
-    payload = TaskPayload.parse(req.body);
-  } catch (e: any) {
-    return reply.code(400).send({ ok: false, error: e.message });
-  }
+  let payload: TaskPayload;
+
+  payload = req.body as TaskPayload;
 
   const credentials: Record<string, any> = {};
   const matchedRequests: RunResult['matchedRequests'] = [];
@@ -54,7 +52,6 @@ app.post('/run', async (req, reply) => {
   const context = await browser.newContext(payload.contextOptions);
   const page = await context.newPage(payload.pageOptions);
   await deletePlaywrightScript(page);
-  // fornece createCredential à página (antes de qualquer script)
   await page.exposeBinding(
     'createCredential',
     (_source, name: string, value: any) => {
@@ -64,8 +61,6 @@ app.post('/run', async (req, reply) => {
     }
   );
 
-  // scripts que rodam antes de QUALQUER página (iniciais):
-  // - beforePageScript: roda com acesso a window.createCredential
   if (payload.beforePageScript && payload.beforePageScript.trim().length > 0) {
     await page.addInitScript(
       `(function(){ try { ${payload.beforePageScript} } catch(e){ console.error(e) } })();`
@@ -104,13 +99,11 @@ app.post('/run', async (req, reply) => {
       const status = response.status();
       const found = resMatchers.find((m) => m.test(url, status));
       if (found) {
-        // cuidado: body pode ser grande; codifica em base64
         let bodyBase64: string | undefined;
         try {
           const body = await response.body();
           bodyBase64 = Buffer.from(body).toString('base64');
         } catch {
-          // alguns responses não permitem body() (streaming)
         }
         const headers: Record<string, string> = {};
         for (const [k, v] of Object.entries(await response.headers())) {
@@ -135,37 +128,8 @@ app.post('/run', async (req, reply) => {
   let error: string | undefined;
 
   try {
-    // executa cada step sequencialmente
-    for (const step of payload.steps) {
-      const handler = StepHandlers[step.action];
-      try {
-        if (!handler) {
-          // fallback: tenta chamar page[action] diretamente se existir (super abrangente)
-          const anyPage: any = page as any;
-          if (typeof anyPage[step.action] === 'function') {
-            // @ts-ignore
-            await anyPage[step.action](...(step.value ?? []), step.options);
-          } else {
-            throw new Error(`step not supported: ${step.action}`);
-          }
-        } else {
-          await handler(page, step);
-        }
-      } catch (e: any) {
-        const msg = e?.message || String(e);
-        // se for opcional, ignora o erro e continua
-        if (step.optional) {
-          req.log?.warn(
-            { action: step.action, err: msg },
-            'optional step failed; continuing'
-          );
-          continue;
-        }
-        throw e;
-      }
-    }
+    await StepExecutor.executeSteps(page, payload.steps);
 
-    // afterExecutionScript roda ao final, com acesso a window.createCredential
     if (
       payload.afterExecutionScript &&
       payload.afterExecutionScript.trim().length > 0
@@ -197,10 +161,12 @@ app.post('/run', async (req, reply) => {
 });
 
 const port = Number(process.env.PORT || 3000);
-app
-  .listen({ port, host: '0.0.0.0' })
-  .then(() => console.log(`a server on :${port}`))
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  });
+StepHandlerProvider.loadStepHandlers().then(() => {
+  app
+    .listen({ port, host: '0.0.0.0' })
+    .then(() => console.log(`a server on :${port}`))
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    });
+});

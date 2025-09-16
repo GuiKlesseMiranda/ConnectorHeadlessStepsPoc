@@ -1,0 +1,18 @@
+{
+    "browser": "chromium",
+    "headless": false,
+    "beforePageScript": "",
+    "steps": [
+        {
+            "action": "addScriptTag",
+            "value": {
+                "content": "createCredential('teste', true);"
+            }
+        }
+    ],
+    "matchers": {
+        "requests": [],
+        "responses": []
+    },
+    "afterExecutionScript": ""
+}

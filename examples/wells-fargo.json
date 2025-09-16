@@ -1,0 +1,54 @@
+{
+  "browser": "chromium",
+  "headless": false,
+  "beforePageScript": "",
+  "steps": [
+    {
+      "action": "goto",
+      "value": "https://connect.secure.wellsfargo.com/auth/login/present"
+    },
+    {
+      "action": "waitForLoadState",
+      "dialogAction": "load"
+    },
+    {
+      "action": "click",
+      "selector": "#onetrust-accept-btn-handler",
+      "optional": true
+    },
+    {
+      "action": "userFill",
+      "selector": "#j_username",
+      "value": "testeaaaa",
+      "options": {
+        "timeout": 15000
+      }
+    },
+    {
+      "action": "userFill",
+      "selector": "#j_password",
+      "value": "testdsdsdsdse"
+    },
+    {
+      "action": "userClick",
+      "selector": "button:has-text(\"Sign On\")"
+    }
+  ],
+  "matchers": {
+    "requests": [
+      {
+        "id": "loginPage",
+        "urlPathPattern": "/auth/login/do",
+        "method": "POST"
+      }
+    ],
+    "responses": [
+      {
+        "id": "loginPage",
+        "urlPathPattern": "/auth/login/do",
+        "method": "POST"
+      }
+    ]
+  },
+  "afterExecutionScript": ""
+}

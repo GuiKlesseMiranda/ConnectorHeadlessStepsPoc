@@ -1,0 +1,25 @@
+{
+  "browser": "chromium",
+  "headless": false,
+  "beforePageScript": "",
+  "steps": [
+    {
+      "action": "addCookies",
+      "value": [
+        {
+          "name": "session_id",
+          "value": "123456789",
+          "domain": ".example.com",
+          "path": "/",
+          "httpOnly": true,
+          "secure": true
+        }
+      ]
+    }
+  ],
+  "matchers": {
+    "requests": [],
+    "responses": []
+  },
+  "afterExecutionScript": ""
+}

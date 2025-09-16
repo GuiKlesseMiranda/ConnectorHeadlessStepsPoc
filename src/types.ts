@@ -1,48 +1,50 @@
-import { z } from 'zod';
+import { Page } from 'playwright';
 
-export const RequestMatcher = z.object({
-  id: z.string(),
-  method: z.string().optional(),
-  url: z.string().optional(),
-  urlPathPattern: z.string().optional(),
-});
+export const BROWSERS = ['chromium', 'firefox', 'webkit'] as const;
+export type Browser = (typeof BROWSERS)[number];
 
-export const ResponseMatcher = z.object({
-  id: z.string(),
-  url: z.string().optional(),
-  urlPathPattern: z.string().optional(),
-  status: z.number().optional(),
-});
+export interface RequestMatcher {
+  id: string;
+  method?: string;
+  url?: string;
+  urlPathPattern?: string;
+}
 
-export const Step = z.object({
-  action: z.string(),
-  value: z.any().optional(),
-  selector: z.string().optional(),
-  optional: z.boolean().optional().default(false),
-  options: z.record(z.any()).optional(),
-});
+export interface ResponseMatcher {
+  id: string;
+  url?: string;
+  urlPathPattern?: string;
+  status?: number;
+}
+export interface TaskPayload {
+  browser?: Browser;
+  headless?: boolean;
+  contextOptions?: Record<string, unknown>;
+  pageOptions?: Record<string, unknown>;
+  beforePageScript?: string;
+  steps: Step[];
+  matchers?: {
+    requests?: RequestMatcher[];
+    responses?: ResponseMatcher[];
+  };
+  afterExecutionScript?: string;
+}
 
-export const TaskPayload = z.object({
-  browser: z
-    .enum(['chromium', 'firefox', 'webkit'])
-    .optional()
-    .default('chromium'),
-  headless: z.boolean().optional().default(true),
-  contextOptions: z.record(z.any()).optional(),
-  pageOptions: z.record(z.any()).optional(),
+export type TTaskPayload = TaskPayload;
 
-  beforePageScript: z.string().optional().default(''),
-  steps: z.array(Step).default([]),
-  matchers: z
-    .object({
-      requests: z.array(RequestMatcher).optional().default([]),
-      responses: z.array(ResponseMatcher).optional().default([]),
-    })
-    .optional()
-    .default({ requests: [], responses: [] }),
-  afterExecutionScript: z.string().optional().default(''),
-});
-export type TTaskPayload = z.infer<typeof TaskPayload>;
+export interface NormalizedTaskPayload {
+  browser: Browser;
+  headless: boolean;
+  contextOptions: Record<string, unknown>;
+  pageOptions: Record<string, unknown>;
+  beforePageScript: string;
+  steps: Step[];
+  matchers: {
+    requests: RequestMatcher[];
+    responses: ResponseMatcher[];
+  };
+  afterExecutionScript: string;
+}
 
 export type CapturedRequest = {
   matcherId?: string;
@@ -70,3 +72,8 @@ export type RunResult = {
   matchedResponses: CapturedResponse[];
   cookies: any[];
 };
+
+export type StepHandler = Record<
+  string,
+  (page: Page, step: Step) => Promise<any>
+>;
